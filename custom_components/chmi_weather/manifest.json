@@ -1,0 +1,10 @@
+{
+  "domain": "chmi_weather",
+  "name": "CHMI Weather Integration",
+  "version": "0.0.1",
+  "config_flow": true,
+  "requirements": [],
+  "codeowners": ["@jbulek"],
+  "documentation": "https://github.com/jbulek/homeassistant-chmi",
+  "issue_tracker": "https://github.com/jbulek/homeassistant-chmi"
+}
