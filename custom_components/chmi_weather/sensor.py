@@ -1,7 +1,7 @@
-import aiohttp
 import logging
 from datetime import datetime, timedelta
 from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
@@ -15,21 +15,32 @@ _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL = timedelta(minutes=10)
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
-    station_key = entry.data["station_key"]
-    station = STATIONS[station_key]
-    station_id = station["station_id"]
-    station_type = station["station_type"]
+class CHMIDataUpdateCoordinator(DataUpdateCoordinator):
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self._entry = entry
+        self._station_key = entry.data["station_key"]
+        station = STATIONS[self._station_key]
+        self._station_id = station["station_id"]
+        self._station_type = station["station_type"]
+        self._session = async_get_clientsession(hass)
+        super().__init__(
+            hass,
+            _LOGGER,
+            name="CHMI Data",
+            update_method=self._async_update_data,
+            update_interval=SCAN_INTERVAL,
+        )
 
-    session = aiohttp.ClientSession()
-
-    async def fetch_data():
+    async def _async_update_data(self):
         for offset in [0, -1]:  # Try today, then yesterday
             date = (datetime.utcnow() + timedelta(days=offset)).strftime("%Y%m%d")
-            url = f"https://opendata.chmi.cz/meteorology/climate/now/data/10m-0-{station_type}-0-{station_id}-{date}.json"
+            url = (
+                "https://opendata.chmi.cz/meteorology/climate/now/data/"
+                f"10m-0-{self._station_type}-0-{self._station_id}-{date}.json"
+            )
 
             try:
-                async with session.get(url) as response:
+                async with self._session.get(url) as response:
                     if response.status == 200:
                         raw = await response.json()
                         return parse_weather_data(raw)
@@ -39,15 +50,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
         raise UpdateFailed("No valid CHMI weather data available.")
 
-    coordinator = DataUpdateCoordinator(
-        hass,
-        _LOGGER,
-        name="CHMI Data",
-        update_method=fetch_data,
-        update_interval=SCAN_INTERVAL,
-    )
 
-    await coordinator.async_config_entry_first_refresh()
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+):
+    entry_data = hass.data[DOMAIN][entry.entry_id]
+    coordinator = entry_data["coordinator"]
+    station_key = entry.data["station_key"]
 
     sensors = [
         WeatherSensor(coordinator, key, SENSOR_TYPES[key], SENSOR_UNITS.get(key), station_key)
